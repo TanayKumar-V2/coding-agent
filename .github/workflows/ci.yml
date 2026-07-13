@@ -23,6 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Clone target repository for tests
+        run: |
+          mkdir -p target_repos
+          git clone https://github.com/python-humanize/humanize.git target_repos/humanize
+          cd target_repos/humanize && git checkout c3a124cdeb272d7f63bc0aa66f79c6fbafd2fc6d
+
       - name: Lint with flake8
         run: |
           flake8 . --count --statistics
@@ -31,8 +37,6 @@ jobs:
       - name: Run tests with pytest
         run: |
           python -m pytest tests/ -v --tb=short
-        env:
-          COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
 
   frontend:
     runs-on: ubuntu-latest
