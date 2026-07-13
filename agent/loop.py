@@ -114,6 +114,7 @@ IMPORTANT RULES:
     
     coder_msg = f"Task: {task}\n\nPlan:\n{plan}\n\nPlease implement the plan. Start by applying patches."
     tool_results = None
+    tests_passed = False
     
     for step in range(max_steps):
         print(f"\nCoder Step {step+1}")
@@ -138,8 +139,14 @@ IMPORTANT RULES:
         if response.text: print(f"Coder: {response.text}")
         
         if not response.tool_calls:
-            print("Coder finished successfully.")
-            return response.text
+            if not tests_passed:
+                print("==> NUDGE: Model stopped without tools, but tests haven't passed.")
+                coder_msg = "You provided a text response but did not execute any tool calls. If you haven't fixed the bug and verified it with tests yet, you must use `patch_file` to modify the code and `run_tests` to verify your fix. Please execute the required tool calls now."
+                tool_results = None
+                continue
+            else:
+                print("Coder finished successfully.")
+                return response.text
             
         tool_results = []
         for tc in response.tool_calls:
@@ -159,8 +166,11 @@ IMPORTANT RULES:
             print(f"Result: {res[:200]}...")
             
             # Auto-reflection injection if tests or linter fail
-            if tc.name in ["run_tests", "run_linter"] and ("failed" in res.lower() or "error" in res.lower() or "failure" in res.lower()):
-                print("==> REFLECTION LOOP TRIGGERED: Failure detected.")
+            if tc.name in ["run_tests", "run_linter"]:
+                if "failed" in res.lower() or "error" in res.lower() or "failure" in res.lower():
+                    print("==> REFLECTION LOOP TRIGGERED: Failure detected.")
+                elif tc.name == "run_tests":
+                    tests_passed = True
                 
         log_event("coder_tool_results", tool_results)
 
