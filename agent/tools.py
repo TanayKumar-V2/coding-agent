@@ -31,16 +31,20 @@ def list_files(directory: str) -> str:
         return f"Error: {str(e)}"
 
 def read_file(path: str) -> str:
-    """Read a file's contents."""
+    """Read the contents of a file."""
     try:
         target_path = _resolve_and_check_path(path)
         if not os.path.exists(target_path):
             return f"Error: File {path} does not exist."
         if not os.path.isfile(target_path):
             return f"Error: {path} is not a file."
-            
         with open(target_path, 'r', encoding='utf-8') as f:
-            return f.read()
+            content = f.read()
+            if len(content) > 30000:
+                lines = content.splitlines()
+                truncated_content = "\n".join(lines[:300]) + f"\n\n... [TRUNCATED {len(lines) - 300} lines] ...\n"
+                return truncated_content
+            return content
     except Exception as e:
         return f"Error: {str(e)}"
 
@@ -87,13 +91,28 @@ def run_tests(test_path: str = "tests/") -> str:
         python_executable = sys.executable
         
         result = subprocess.run(
-            [python_executable, '-m', 'pytest', target_path, '--ignore=tests/test_benchmarks.py'],
+            [python_executable, '-m', 'pytest', target_path, '--ignore=tests/test_benchmarks.py', '-q', '--tb=short', '--color=no'],
             cwd=BASE_DIR,
             capture_output=True,
             text=True,
             timeout=60
         )
-        return result.stdout + "\\n" + result.stderr
+        
+        output = result.stdout + "\n" + result.stderr
+        
+        # Clean up output to remove long lines of dots
+        cleaned_lines = []
+        for line in output.splitlines():
+            if line.startswith('.') and len(line) > 10 and line.strip('.FEs ') == '':
+                continue
+            cleaned_lines.append(line)
+        output = "\n".join(cleaned_lines)
+
+        if len(output) > 3000:
+            lines = output.splitlines()
+            if len(lines) > 100:
+                output = "\n".join(lines[:40]) + "\n\n... [OUTPUT TRUNCATED] ...\n\n" + "\n".join(lines[-60:])
+        return output
     except subprocess.TimeoutExpired:
         return "Error: Test suite execution timed out after 60 seconds."
     except Exception as e:
