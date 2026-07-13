@@ -5,6 +5,7 @@ import uuid
 import cohere
 from agent.tools import list_files, read_file, search_code, write_file, run_tests, patch_file, run_linter
 from agent.tool_schemas import TOOLS
+import re
 
 TOOL_FUNCTIONS = {
     "list_files": list_files,
@@ -50,7 +51,8 @@ You only have read access to the repository (list_files, read_file, search_code)
 1. Explore the codebase to find where the bug or feature should be implemented.
 2. Find the relevant tests.
 3. Formulate a detailed, step-by-step markdown plan of what files need to be changed and what code needs to be modified.
-Do NOT write code directly. End your response with a clear, numbered plan."""
+Do NOT write code directly. End your response with a clear, numbered plan.
+DO NOT output tool calls as markdown JSON blocks. You MUST use the provided function calling API to execute tools."""
     
     PLANNER_TOOLS = [t for t in TOOLS if t["name"] in ["list_files", "read_file", "search_code"]]
     
@@ -81,6 +83,28 @@ Do NOT write code directly. End your response with a clear, numbered plan."""
         log_event("planner_response", {"text": response.text, "tool_calls": [_serialize_tool_call(tc) for tc in (response.tool_calls or [])]})
         if response.text: print(f"Planner: {response.text}")
         
+        if not response.tool_calls:
+            # Check for JSON blocks
+            json_blocks = re.findall(r'```json\n(.*?)\n```', response.text, re.DOTALL)
+            parsed_tools = []
+            for block in json_blocks:
+                try:
+                    data = json.loads(block)
+                    if isinstance(data, dict) and 'tool_name' in data:
+                        parsed_tools.append({
+                            "name": data["tool_name"],
+                            "parameters": data.get("parameters", {})
+                        })
+                except Exception:
+                    pass
+            if parsed_tools:
+                print("==> PARSED JSON TOOL CALLS FROM TEXT")
+                class DummyCall:
+                    def __init__(self, n, p):
+                        self.name = n
+                        self.parameters = p
+                response.tool_calls = [DummyCall(pt["name"], pt["parameters"]) for pt in parsed_tools]
+                
         if not response.tool_calls:
             plan = response.text
             break
@@ -123,7 +147,8 @@ IMPORTANT RULES:
 2. After patching, you MUST run `run_linter`.
 3. If the linter passes, you MUST run `run_tests`.
 4. REFLECTION LOOP: If `run_linter` or `run_tests` fails, you must output a text response analyzing WHY it failed before you use `patch_file` again to fix it. Do not just blindly try the same patch again.
-5. Do not stop until tests pass."""
+5. Do not stop until tests pass.
+DO NOT output tool calls as markdown JSON blocks. You MUST use the provided function calling API to execute tools."""
     
     CODER_TOOLS = TOOLS # All tools including read, write, patch, test, linter
     coder_conversation_id = str(uuid.uuid4())
@@ -155,6 +180,28 @@ IMPORTANT RULES:
         log_event("coder_response", {"text": response.text, "tool_calls": [_serialize_tool_call(tc) for tc in (response.tool_calls or [])]})
         if response.text: print(f"Coder: {response.text}")
         
+        if not response.tool_calls:
+            # Check for JSON blocks
+            json_blocks = re.findall(r'```json\n(.*?)\n```', response.text, re.DOTALL)
+            parsed_tools = []
+            for block in json_blocks:
+                try:
+                    data = json.loads(block)
+                    if isinstance(data, dict) and 'tool_name' in data:
+                        parsed_tools.append({
+                            "name": data["tool_name"],
+                            "parameters": data.get("parameters", {})
+                        })
+                except Exception:
+                    pass
+            if parsed_tools:
+                print("==> PARSED JSON TOOL CALLS FROM TEXT")
+                class DummyCall:
+                    def __init__(self, n, p):
+                        self.name = n
+                        self.parameters = p
+                response.tool_calls = [DummyCall(pt["name"], pt["parameters"]) for pt in parsed_tools]
+
         if not response.tool_calls:
             if not tests_passed:
                 print("==> NUDGE: Model stopped without tools, but tests haven't passed.")
