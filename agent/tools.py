@@ -1,17 +1,23 @@
 import os
 import subprocess
 
-# Base path for the sandboxed target repo
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'target_repos', 'humanize'))
+# Default base path if not configured
+DEFAULT_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'target_repos', 'humanize'))
+
+def get_base_dir() -> str:
+    """Get the target repository directory."""
+    path = os.environ.get("TARGET_REPO_DIR", DEFAULT_BASE_DIR)
+    return os.path.abspath(path)
 
 def _resolve_and_check_path(path: str) -> str:
     """Resolve a path and ensure it is within the sandbox."""
+    base_dir = get_base_dir()
     if os.path.isabs(path):
         resolved = os.path.abspath(path)
     else:
-        resolved = os.path.abspath(os.path.join(BASE_DIR, path))
+        resolved = os.path.abspath(os.path.join(base_dir, path))
         
-    if not resolved.startswith(BASE_DIR):
+    if not resolved.startswith(base_dir):
         raise ValueError(f"Access denied: path {path} is outside the sandbox.")
         
     return resolved
@@ -51,9 +57,10 @@ def read_file(path: str) -> str:
 def search_code(query: str) -> str:
     """Search across the repo for a string/pattern."""
     try:
+        base_dir = get_base_dir()
         result = subprocess.run(
             ['grep', '-rn', query, '.'],
-            cwd=BASE_DIR,
+            cwd=base_dir,
             capture_output=True,
             text=True
         )
@@ -84,15 +91,21 @@ def run_tests(test_path: str = "tests/") -> str:
         target_path = _resolve_and_check_path(test_path)
         if not os.path.exists(target_path):
             return f"Error: Test path {test_path} does not exist."
-            
-        # We assume pytest is installed in the current environment
-        import sys
-        # Need to point to the python executable running the agent loop
-        python_executable = sys.executable
+        test_cmd = os.environ.get("TEST_CMD")
+        if test_cmd:
+            import shlex
+            cmd = shlex.split(test_cmd)
+        else:
+            # We assume pytest is installed in the current environment
+            import sys
+            # Need to point to the python executable running the agent loop
+            python_executable = sys.executable
+            cmd = [python_executable, '-m', 'pytest', target_path, '--ignore=tests/test_benchmarks.py', '-q', '--tb=short', '--color=no']
         
+        base_dir = get_base_dir()
         result = subprocess.run(
-            [python_executable, '-m', 'pytest', target_path, '--ignore=tests/test_benchmarks.py', '-q', '--tb=short', '--color=no'],
-            cwd=BASE_DIR,
+            cmd,
+            cwd=base_dir,
             capture_output=True,
             text=True,
             timeout=60
@@ -144,10 +157,18 @@ def run_linter(path: str = ".") -> str:
     """Run flake8 on the given path to check for syntax and style errors."""
     try:
         target_path = _resolve_and_check_path(path)
-        import sys
+        lint_cmd = os.environ.get("LINT_CMD")
+        if lint_cmd:
+            import shlex
+            cmd = shlex.split(lint_cmd)
+        else:
+            import sys
+            cmd = [sys.executable, '-m', 'flake8', target_path]
+            
+        base_dir = get_base_dir()
         result = subprocess.run(
-            [sys.executable, '-m', 'flake8', target_path],
-            cwd=BASE_DIR,
+            cmd,
+            cwd=base_dir,
             capture_output=True,
             text=True,
             timeout=30
