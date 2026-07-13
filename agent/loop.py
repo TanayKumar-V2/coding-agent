@@ -3,151 +3,165 @@ import json
 from datetime import datetime
 import uuid
 import cohere
-from agent.tools import list_files, read_file, search_code, write_file, run_tests
+from agent.tools import list_files, read_file, search_code, write_file, run_tests, patch_file, run_linter
 from agent.tool_schemas import TOOLS
 
-# Map tool names to functions
 TOOL_FUNCTIONS = {
     "list_files": list_files,
     "read_file": read_file,
     "search_code": search_code,
     "write_file": write_file,
-    "run_tests": run_tests
+    "patch_file": patch_file,
+    "run_tests": run_tests,
+    "run_linter": run_linter
 }
 
 def _serialize_tool_call(tc):
-    if hasattr(tc, 'model_dump'):
-        return tc.model_dump()
-    if hasattr(tc, 'dict'):
-        return tc.dict()
+    if hasattr(tc, 'model_dump'): return tc.model_dump()
+    if hasattr(tc, 'dict'): return tc.dict()
     return dict(tc)
 
-def run_agent_loop(task: str, max_steps: int = 15):
+def run_agent_loop(task: str, max_steps: int = 20):
     api_key = os.environ.get("COHERE_API_KEY")
     if not api_key:
         raise ValueError("COHERE_API_KEY environment variable is not set.")
     
     co = cohere.Client(api_key=api_key)
     
-    # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs', f'run_{timestamp}')
     os.makedirs(log_dir, exist_ok=True)
     transcript_file = os.path.join(log_dir, 'transcript.json')
-    
     transcript = []
     
     def log_event(event_type, content):
-        event = {
-            "timestamp": datetime.now().isoformat(),
-            "type": event_type,
-            "content": content
-        }
+        event = {"timestamp": datetime.now().isoformat(), "type": event_type, "content": content}
         transcript.append(event)
         with open(transcript_file, 'w', encoding='utf-8') as f:
             json.dump(transcript, f, indent=2)
 
     log_event("task", task)
+    print(f"Starting Multi-Agent loop. Logs in {log_dir}")
     
-    preamble = """You are an expert AI software engineer. Your task is to fix a bug in the provided repository.
-You must use the available tools to explore the codebase, understand the bug, modify the code, and run tests.
-Workflow:
-1. Search the code or list files to understand the project.
-2. Run tests to see what is failing.
-3. Read the relevant files. IMPORTANT: Do NOT use read_file on large test files (like test_number.py) because they are too large and will crash the context limit. Use search_code to find specific failing test definitions or line numbers instead.
-4. Write the fix using write_file.
-5. Run tests again to verify.
-Do not stop until the tests pass."""
+    # ------------------ PLANNER AGENT ------------------
+    print("\n=== STARTING PLANNER AGENT ===")
+    planner_preamble = """You are an expert AI software architect. Your job is to plan how to solve the user's issue.
+You only have read access to the repository (list_files, read_file, search_code).
+1. Explore the codebase to find where the bug or feature should be implemented.
+2. Find the relevant tests.
+3. Formulate a detailed, step-by-step markdown plan of what files need to be changed and what code needs to be modified.
+Do NOT write code directly. End your response with a clear, numbered plan."""
     
-    log_event("system_preamble", preamble)
+    PLANNER_TOOLS = [t for t in TOOLS if t["name"] in ["list_files", "read_file", "search_code"]]
     
-    print(f"Starting agent loop. Logs in {log_dir}")
-    
-    conversation_id = str(uuid.uuid4())
-    step_count = 0
-    
-    # First turn uses message=task
-    current_message = task
+    planner_conversation_id = str(uuid.uuid4())
+    planner_msg = task
     tool_results = None
     
-    while step_count < max_steps:
-        step_count += 1
-        print(f"\\n--- Step {step_count} ---")
+    for step in range(5): # Max 5 steps for planning
+        print(f"Planner Step {step+1}")
+        kwargs = {"preamble": planner_preamble, "tools": PLANNER_TOOLS, "model": "command-a-03-2025", "conversation_id": planner_conversation_id}
+        if tool_results:
+            kwargs["message"] = ""
+            kwargs["tool_results"] = tool_results
+        else:
+            kwargs["message"] = planner_msg
+            
+        for retry in range(3):
+            try:
+                response = co.chat(**kwargs)
+                break
+            except Exception as e:
+                if "NO_TOOL_CALL_OR_RESPONSE_GENERATED" in str(e) and retry < 2:
+                    import time; time.sleep(2)
+                    continue
+                raise e
         
-        try:
-            kwargs = {
-                "preamble": preamble,
-                "tools": TOOLS,
-                "model": "command-a-03-2025",
-                "conversation_id": conversation_id
-            }
-            if tool_results:
-                kwargs["message"] = ""
-                kwargs["tool_results"] = tool_results
-                print(f"DEBUG: sending tool_results with {len(tool_results)} items.")
-            else:
-                kwargs["message"] = current_message
-                
-            for retry_count in range(3):
-                try:
-                    response = co.chat(**kwargs)
-                    break
-                except Exception as e:
-                    if "NO_TOOL_CALL_OR_RESPONSE_GENERATED" in str(e) and retry_count < 2:
-                        print(f"Retrying after error: {e}")
-                        import time; time.sleep(2)
-                        continue
-                    raise e
+        log_event("planner_response", {"text": response.text, "tool_calls": [_serialize_tool_call(tc) for tc in (response.tool_calls or [])]})
+        if response.text: print(f"Planner: {response.text}")
+        
+        if not response.tool_calls:
+            plan = response.text
+            break
             
-            # Log the response safely
-            log_event("model_response", {
-                "text": response.text,
-                "tool_calls": [_serialize_tool_call(tc) for tc in (response.tool_calls or [])]
-            })
+        tool_results = []
+        for tc in response.tool_calls:
+            print(f"Planner Tool: {tc.name}")
+            func = TOOL_FUNCTIONS[tc.name]
+            args = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
+            res = str(func(**args))
+            tool_results.append({"call": {"name": tc.name, "parameters": args}, "outputs": [{"result": res}]})
+        log_event("planner_tool_results", tool_results)
+    else:
+        plan = response.text
+    
+    print("\n=== PLAN COMPILED ===")
+    print(plan)
+    
+    # ------------------ CODER AGENT ------------------
+    print("\n=== STARTING CODER AGENT ===")
+    coder_preamble = """You are an expert AI software engineer. You have been given a plan to solve an issue.
+You must implement the plan using your tools (patch_file, write_file, run_tests, run_linter).
+IMPORTANT RULES:
+1. Always use `patch_file` for modifying existing files. Use `write_file` ONLY for creating new files.
+2. After patching, you MUST run `run_linter`.
+3. If the linter passes, you MUST run `run_tests`.
+4. REFLECTION LOOP: If `run_linter` or `run_tests` fails, you must output a text response analyzing WHY it failed before you use `patch_file` again to fix it. Do not just blindly try the same patch again.
+5. Do not stop until tests pass."""
+    
+    CODER_TOOLS = TOOLS # All tools including read, write, patch, test, linter
+    coder_conversation_id = str(uuid.uuid4())
+    
+    coder_msg = f"Task: {task}\n\nPlan:\n{plan}\n\nPlease implement the plan. Start by applying patches."
+    tool_results = None
+    
+    for step in range(max_steps):
+        print(f"\nCoder Step {step+1}")
+        kwargs = {"preamble": coder_preamble, "tools": CODER_TOOLS, "model": "command-a-03-2025", "conversation_id": coder_conversation_id}
+        if tool_results:
+            kwargs["message"] = ""
+            kwargs["tool_results"] = tool_results
+        else:
+            kwargs["message"] = coder_msg
             
-            if response.text:
-                print(f"Model: {response.text}")
-                
-            if not response.tool_calls:
-                print("No more tool calls. Task finished.")
-                log_event("finish", "Model completed without tool calls.")
-                return response.text
-                
-            # Execute tool calls
-            tool_results = []
-            for tc in response.tool_calls:
-                print(f"Executing tool: {tc.name} with args {tc.parameters}")
-                func = TOOL_FUNCTIONS.get(tc.name)
-                if not func:
-                    result = f"Error: unknown tool {tc.name}"
-                else:
-                    try:
-                        args = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
-                        # ensure test_path has a default if omitted by model
-                        if tc.name == "run_tests" and "test_path" not in args:
-                            args["test_path"] = "tests/"
-                        result = str(func(**args))
-                    except Exception as e:
-                        result = f"Error executing {tc.name}: {str(e)}"
-                
-                # Format for Cohere tool_results
-                parameters_dict = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
-                tool_results.append({
-                    "call": {
-                        "name": tc.name,
-                        "parameters": parameters_dict
-                    },
-                    "outputs": [{"result": result}]
-                })
-                print(f"Result: {result[:200]}{'...' if len(result) > 200 else ''}")
-                
-            log_event("tool_results", tool_results)
+        for retry in range(3):
+            try:
+                response = co.chat(**kwargs)
+                break
+            except Exception as e:
+                if "NO_TOOL_CALL_OR_RESPONSE_GENERATED" in str(e) and retry < 2:
+                    import time; time.sleep(2)
+                    continue
+                raise e
+        
+        log_event("coder_response", {"text": response.text, "tool_calls": [_serialize_tool_call(tc) for tc in (response.tool_calls or [])]})
+        if response.text: print(f"Coder: {response.text}")
+        
+        if not response.tool_calls:
+            print("Coder finished successfully.")
+            return response.text
             
-        except Exception as e:
-            print(f"Error calling Cohere API: {e}")
-            log_event("error", str(e))
-            return f"Failed due to API error: {e}"
+        tool_results = []
+        for tc in response.tool_calls:
+            print(f"Coder executing: {tc.name} with args {tc.parameters}")
+            func = TOOL_FUNCTIONS.get(tc.name)
+            args = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
+            if tc.name in ["run_tests", "run_linter"] and "path" not in args and "test_path" not in args:
+                if tc.name == "run_tests": args["test_path"] = "tests/"
+                else: args["path"] = "."
+                
+            try:
+                res = str(func(**args))
+            except Exception as e:
+                res = f"Error: {e}"
+                
+            tool_results.append({"call": {"name": tc.name, "parameters": args}, "outputs": [{"result": res}]})
+            print(f"Result: {res[:200]}...")
             
-    print("Max steps reached. Did not converge.")
-    log_event("finish", "Max steps reached.")
-    return "Did not converge in max steps."
+            # Auto-reflection injection if tests or linter fail
+            if tc.name in ["run_tests", "run_linter"] and ("failed" in res.lower() or "error" in res.lower() or "failure" in res.lower()):
+                print("==> REFLECTION LOOP TRIGGERED: Failure detected.")
+                
+        log_event("coder_tool_results", tool_results)
+
+    return "Max steps reached without convergence."

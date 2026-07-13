@@ -40,3 +40,4 @@ types-requests==2.33.0.20260712
 typing-inspection==0.4.2
 typing_extensions==4.16.0
 urllib3==2.7.0
+flake8

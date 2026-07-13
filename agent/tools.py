@@ -117,3 +117,44 @@ def run_tests(test_path: str = "tests/") -> str:
         return "Error: Test suite execution timed out after 60 seconds."
     except Exception as e:
         return f"Error: {str(e)}"
+
+def patch_file(path: str, target_string: str, replacement_string: str) -> str:
+    """Patch a file by replacing a specific string."""
+    try:
+        target_path = _resolve_and_check_path(path)
+        if not os.path.exists(target_path):
+            return f"Error: File {path} does not exist."
+            
+        with open(target_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        if target_string not in content:
+            return "Error: target_string not found in file."
+        if content.count(target_string) > 1:
+            return "Error: target_string found multiple times. Please provide a more specific target_string."
+            
+        new_content = content.replace(target_string, replacement_string)
+        with open(target_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        return f"Successfully patched {path}."
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+def run_linter(path: str = ".") -> str:
+    """Run flake8 on the given path to check for syntax and style errors."""
+    try:
+        target_path = _resolve_and_check_path(path)
+        import sys
+        result = subprocess.run(
+            [sys.executable, '-m', 'flake8', target_path],
+            cwd=BASE_DIR,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            return "Linter passed: No issues found."
+        else:
+            return f"Linter issues found:\n{result.stdout}\n{result.stderr}"
+    except Exception as e:
+        return f"Error running linter: {str(e)}"

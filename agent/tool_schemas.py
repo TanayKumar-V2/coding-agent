@@ -58,5 +58,37 @@ TOOLS = [
                 "required": False
             }
         }
+    },
+    {
+        "name": "patch_file",
+        "description": "Patch a file by replacing a specific string. Use this instead of write_file for small changes.",
+        "parameter_definitions": {
+            "path": {
+                "description": "The path to the file to patch, relative to the repository root.",
+                "type": "str",
+                "required": True
+            },
+            "target_string": {
+                "description": "The exact string to be replaced in the file. Must be unique.",
+                "type": "str",
+                "required": True
+            },
+            "replacement_string": {
+                "description": "The new string to replace the target_string with.",
+                "type": "str",
+                "required": True
+            }
+        }
+    },
+    {
+        "name": "run_linter",
+        "description": "Run flake8 on the given path to check for syntax and style errors.",
+        "parameter_definitions": {
+            "path": {
+                "description": "The path to run linter on. Default is '.'.",
+                "type": "str",
+                "required": False
+            }
+        }
     }
 ]
