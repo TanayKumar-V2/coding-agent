@@ -57,6 +57,7 @@ Do NOT write code directly. End your response with a clear, numbered plan."""
     planner_conversation_id = str(uuid.uuid4())
     planner_msg = task
     tool_results = None
+    planner_recent_calls = []
     
     for step in range(5): # Max 5 steps for planning
         print(f"Planner Step {step+1}")
@@ -84,6 +85,21 @@ Do NOT write code directly. End your response with a clear, numbered plan."""
             plan = response.text
             break
             
+        current_calls = [{"name": tc.name, "parameters": tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)} for tc in response.tool_calls]
+        if current_calls in planner_recent_calls:
+            print("==> NUDGE: Repetitive loop detected in Planner.")
+            tool_results = []
+            for tc in response.tool_calls:
+                args = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
+                res = "ERROR: Loop detected. You recently executed this exact tool call with these exact parameters. Please analyze your previous results and try a different approach, search query, or file path. Do not repeat yourself."
+                tool_results.append({"call": {"name": tc.name, "parameters": args}, "outputs": [{"result": res}]})
+            log_event("planner_tool_results", tool_results)
+            continue
+            
+        planner_recent_calls.append(current_calls)
+        if len(planner_recent_calls) > 3:
+            planner_recent_calls.pop(0)
+
         tool_results = []
         for tc in response.tool_calls:
             print(f"Planner Tool: {tc.name}")
@@ -115,6 +131,7 @@ IMPORTANT RULES:
     coder_msg = f"Task: {task}\n\nPlan:\n{plan}\n\nPlease implement the plan. Start by applying patches."
     tool_results = None
     tests_passed = False
+    coder_recent_calls = []
     
     for step in range(max_steps):
         print(f"\nCoder Step {step+1}")
@@ -147,7 +164,21 @@ IMPORTANT RULES:
             else:
                 print("Coder finished successfully.")
                 return response.text
+        current_calls = [{"name": tc.name, "parameters": tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)} for tc in response.tool_calls]
+        if current_calls in coder_recent_calls:
+            print("==> NUDGE: Repetitive loop detected in Coder.")
+            tool_results = []
+            for tc in response.tool_calls:
+                args = tc.parameters if isinstance(tc.parameters, dict) else dict(tc.parameters)
+                res = "ERROR: Loop detected. You recently executed this exact tool call with these exact parameters. Please analyze your previous results and try a different approach. Do not repeat yourself."
+                tool_results.append({"call": {"name": tc.name, "parameters": args}, "outputs": [{"result": res}]})
+            log_event("coder_tool_results", tool_results)
+            continue
             
+        coder_recent_calls.append(current_calls)
+        if len(coder_recent_calls) > 3:
+            coder_recent_calls.pop(0)
+
         tool_results = []
         for tc in response.tool_calls:
             print(f"Coder executing: {tc.name} with args {tc.parameters}")
