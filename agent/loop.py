@@ -61,7 +61,7 @@ DO NOT output tool calls as markdown JSON blocks. You MUST use the provided func
     tool_results = None
     planner_recent_calls = []
     
-    for step in range(5): # Max 5 steps for planning
+    for step in range(5):
         print(f"Planner Step {step+1}")
         kwargs = {"preamble": planner_preamble, "tools": PLANNER_TOOLS, "model": "command-a-03-2025", "conversation_id": planner_conversation_id}
         if tool_results:
@@ -75,8 +75,14 @@ DO NOT output tool calls as markdown JSON blocks. You MUST use the provided func
                 response = co.chat(**kwargs)
                 break
             except Exception as e:
+                import time
                 if "NO_TOOL_CALL_OR_RESPONSE_GENERATED" in str(e) and retry < 2:
-                    import time; time.sleep(2)
+                    time.sleep(2)
+                    continue
+                if retry < 2:
+                    wait = 2 ** retry
+                    print(f"Planner API error, retrying in {wait}s: {e}")
+                    time.sleep(wait)
                     continue
                 raise e
         
@@ -157,6 +163,7 @@ DO NOT output tool calls as markdown JSON blocks. You MUST use the provided func
     tool_results = None
     tests_passed = False
     coder_recent_calls = []
+    no_tool_response_count = 0
     
     for step in range(max_steps):
         print(f"\nCoder Step {step+1}")
@@ -172,8 +179,14 @@ DO NOT output tool calls as markdown JSON blocks. You MUST use the provided func
                 response = co.chat(**kwargs)
                 break
             except Exception as e:
+                import time
                 if "NO_TOOL_CALL_OR_RESPONSE_GENERATED" in str(e) and retry < 2:
-                    import time; time.sleep(2)
+                    time.sleep(2)
+                    continue
+                if retry < 2:
+                    wait = 2 ** retry
+                    print(f"Coder API error, retrying in {wait}s: {e}")
+                    time.sleep(wait)
                     continue
                 raise e
         
@@ -204,6 +217,10 @@ DO NOT output tool calls as markdown JSON blocks. You MUST use the provided func
 
         if not response.tool_calls:
             if not tests_passed:
+                no_tool_response_count += 1
+                if no_tool_response_count >= 2:
+                    print("Coder finished (no tools needed).")
+                    return response.text
                 print("==> NUDGE: Model stopped without tools, but tests haven't passed.")
                 coder_msg = "You provided a text response but did not execute any tool calls. If you haven't fixed the bug and verified it with tests yet, you must use `patch_file` to modify the code and `run_tests` to verify your fix. Please execute the required tool calls now."
                 tool_results = None

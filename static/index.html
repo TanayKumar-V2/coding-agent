@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coding Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">&lt;/&gt;</div>
+        <h1>Coding Agent</h1>
+        <span class="version">v1.0</span>
+      </div>
+
+      <div class="sidebar-tabs">
+        <button class="sidebar-tab active" onclick="showTab('history', this)">History</button>
+      </div>
+
+      <div class="sidebar-content" id="run-history">
+        <div class="empty-state">
+          <div class="icon">&#128213;</div>
+          <p>No runs yet. Start one above!</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main-content">
+      <!-- Top bar -->
+      <div class="top-bar">
+        <h2>
+          <span class="status-dot idle" id="status-dot"></span>
+          <span id="status-text">Idle</span>
+        </h2>
+        <button class="btn btn-secondary" id="clear-output">Clear Output</button>
+      </div>
+
+      <!-- Config Panel -->
+      <div class="config-panel" id="config-panel">
+        <form id="run-form">
+          <div class="config-grid">
+            <div class="config-group full-width">
+              <label for="task">Task Description</label>
+              <textarea id="task" placeholder="e.g. Find the bug in the repository and fix it..." required></textarea>
+            </div>
+            <div class="config-group">
+              <label for="max-steps">Max Steps</label>
+              <input type="number" id="max-steps" value="15" min="1" max="100">
+            </div>
+            <div class="config-group">
+              <label for="repo-dir">Repo Directory (optional)</label>
+              <input type="text" id="repo-dir" placeholder="e.g. /path/to/repo">
+            </div>
+            <div class="config-group">
+              <label for="test-cmd">Test Command (optional)</label>
+              <input type="text" id="test-cmd" placeholder="e.g. npm test">
+            </div>
+            <div class="config-group">
+              <label for="lint-cmd">Lint Command (optional)</label>
+              <input type="text" id="lint-cmd" placeholder="e.g. npm run lint">
+            </div>
+          </div>
+          <div class="action-bar" style="padding: 14px 0 0 0; border-bottom: none;">
+            <button type="submit" class="btn btn-primary" id="run-btn">&#9889; Run Agent</button>
+            <button type="button" class="btn btn-secondary" id="copy-output">Copy Output</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Output area -->
+      <div class="output-area" id="output">
+        <div class="output-placeholder">
+          <div class="icon">&#9881;</div>
+          <h3>Ready</h3>
+          <p>Configure your task above and click "Run Agent" to start.</p>
+          <div class="shortcuts">
+            <span><kbd>Enter</kbd> Run</span>
+            <span><kbd>Ctrl+L</kbd> Clear</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>

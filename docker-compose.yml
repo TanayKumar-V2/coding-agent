@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  coding-agent:
+    build: .
+    container_name: coding-agent
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./target_repos:/app/target_repos
+    environment:
+      - COHERE_API_KEY=${COHERE_API_KEY}
+    command: uvicorn api.server:app --host 0.0.0.0 --port 8000

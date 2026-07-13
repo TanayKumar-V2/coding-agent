@@ -22,7 +22,7 @@ def _resolve_and_check_path(path: str) -> str:
         
     return resolved
 
-def list_files(directory: str) -> str:
+def list_files(directory: str = ".") -> str:
     """List files and directories under the given path."""
     try:
         target_dir = _resolve_and_check_path(directory)
