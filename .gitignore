@@ -1,0 +1,7 @@
+target_repos/
+logs/
+.env
+__pycache__/
+venv/
+.venv/
+.pytest_cache/
