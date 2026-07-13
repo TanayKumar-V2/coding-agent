@@ -3,11 +3,13 @@ import subprocess
 
 # Default base path if not configured
 DEFAULT_BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'target_repos', 'humanize'))
+BASE_DIR = DEFAULT_BASE_DIR
 
 def get_base_dir() -> str:
-    """Get the target repository directory."""
+    global BASE_DIR
     path = os.environ.get("TARGET_REPO_DIR", DEFAULT_BASE_DIR)
-    return os.path.abspath(path)
+    BASE_DIR = os.path.abspath(path)
+    return BASE_DIR
 
 def _resolve_and_check_path(path: str) -> str:
     """Resolve a path and ensure it is within the sandbox."""
